@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      certificate_designs: {
+        Row: {
+          created_at: string
+          file_name: string
+          id: string
+          layout: Json
+          mime_type: string
+          storage_path: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          file_name: string
+          id?: string
+          layout?: Json
+          mime_type: string
+          storage_path: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          file_name?: string
+          id?: string
+          layout?: Json
+          mime_type?: string
+          storage_path?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       certificates: {
         Row: {
           course: string
