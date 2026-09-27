@@ -151,6 +151,67 @@ function AdminPage() {
     refresh();
   }
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadRowRef = useRef<Row | null>(null);
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
+
+  function pickFileFor(row: Row) {
+    uploadRowRef.current = row;
+    fileInputRef.current?.click();
+  }
+
+  async function handleFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    const row = uploadRowRef.current;
+    e.target.value = "";
+    if (!file || !row) return;
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("File is larger than 10 MB");
+      return;
+    }
+    setUploadingId(row.id);
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const path = `${row.id}/${Date.now()}-${safeName}`;
+    const { error: upError } = await supabase.storage
+      .from("student-certificates")
+      .upload(path, file, { contentType: file.type || undefined });
+    if (upError) {
+      setUploadingId(null);
+      toast.error(upError.message);
+      return;
+    }
+    if (row.file_path) {
+      await supabase.storage.from("student-certificates").remove([row.file_path]);
+    }
+    const { error: dbError } = await supabase
+      .from("certificates")
+      .update({ file_path: path })
+      .eq("id", row.id);
+    setUploadingId(null);
+    if (dbError) {
+      toast.error(dbError.message);
+      return;
+    }
+    toast.success(`Certificate file attached to ${row.student_name}`);
+    refresh();
+  }
+
+  async function handleRemoveFile(row: Row) {
+    if (!row.file_path) return;
+    if (!confirm(`Remove the uploaded certificate file for ${row.student_name}?`)) return;
+    await supabase.storage.from("student-certificates").remove([row.file_path]);
+    const { error } = await supabase
+      .from("certificates")
+      .update({ file_path: null })
+      .eq("id", row.id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Certificate file removed");
+    refresh();
+  }
+
   async function handleBulkImport() {
     const lines = bulk
       .split("\n")
@@ -367,6 +428,31 @@ function AdminPage() {
                   </td>
                   <td className="px-5 py-3">
                     <div className="flex justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={row.file_path ? "Replace certificate file" : "Upload certificate file"}
+                        title={row.file_path ? "Replace certificate file" : "Upload certificate file"}
+                        disabled={uploadingId === row.id}
+                        onClick={() => pickFileFor(row)}
+                      >
+                        {row.file_path ? (
+                          <FileCheck2 className="size-4 text-primary" />
+                        ) : (
+                          <FileUp className="size-4" />
+                        )}
+                      </Button>
+                      {row.file_path && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label="Remove certificate file"
+                          title="Remove certificate file"
+                          onClick={() => handleRemoveFile(row)}
+                        >
+                          <Trash2 className="size-4 text-muted-foreground" />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
