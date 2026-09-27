@@ -15,6 +15,6 @@ export default defineConfig({
   },
 
   vite: {
-    base: "/certificate-creator-hub/",
+    base: "",
   },
 });
