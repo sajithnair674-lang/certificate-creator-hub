@@ -1,12 +1,14 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronLeft,
   ChevronRight,
+  ImagePlus,
   LogOut,
   Pencil,
   Plus,
+  Save,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -17,6 +19,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { formatDate } from "@/lib/certificate-pdf";
+import { getDesign } from "@/lib/design.functions";
+import {
+  DEFAULT_LAYOUT,
+  FIELD_LABELS,
+  loadDesignAsDataUrl,
+  normalizeLayout,
+  type DesignLayout,
+  type FieldKey,
+} from "@/lib/certificate-design";
 
 const PAGE_SIZE = 25;
 
@@ -301,6 +312,8 @@ function AdminPage() {
           </Button>
         </details>
 
+        <DesignSection />
+
         <div className="mt-8">
           <Input
             value={search}
@@ -411,5 +424,289 @@ function AdminPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+function DesignSection() {
+  const queryClient = useQueryClient();
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const drag = useRef<{
+    key: FieldKey;
+    px: number;
+    py: number;
+    ox: number;
+    oy: number;
+  } | null>(null);
+  const { data: design } = useQuery({ queryKey: ["design"], queryFn: getDesign });
+  const [preview, setPreview] = useState<string | null>(null);
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const [layout, setLayout] = useState<DesignLayout>(DEFAULT_LAYOUT);
+  const [selected, setSelected] = useState<FieldKey>("name");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!design) {
+      setPreview(null);
+      setPreviewFailed(false);
+      setLayout(DEFAULT_LAYOUT);
+      return;
+    }
+    setLayout(normalizeLayout(design.layout));
+    setPreview(null);
+    setPreviewFailed(false);
+    let cancelled = false;
+    loadDesignAsDataUrl(design.url, design.mime)
+      .then((url) => {
+        if (!cancelled) setPreview(url);
+      })
+      .catch(() => {
+        if (!cancelled) setPreviewFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [design]);
+
+  async function currentRow() {
+    const { data } = await supabase
+      .from("certificate_designs")
+      .select("id, storage_path")
+      .maybeSingle();
+    return data;
+  }
+
+  async function handleUpload(file: File) {
+    setBusy(true);
+    try {
+      const ext = (file.name.split(".").pop() ?? "bin").toLowerCase();
+      const path = `design-${Date.now()}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from("certificate-designs")
+        .upload(path, file, { contentType: file.type });
+      if (uploadError) throw uploadError;
+
+      const old = await currentRow();
+      if (old) {
+        await supabase.from("certificate_designs").delete().eq("id", old.id);
+        await supabase.storage.from("certificate-designs").remove([old.storage_path]);
+      }
+      const { error: rowError } = await supabase.from("certificate_designs").insert({
+        storage_path: path,
+        file_name: file.name,
+        mime_type: file.type || "application/octet-stream",
+        layout,
+      });
+      if (rowError) throw rowError;
+      toast.success("Design uploaded");
+      queryClient.invalidateQueries({ queryKey: ["design"] });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRemove() {
+    if (
+      !confirm(
+        "Remove the certificate design? Certificates will use the built-in layout again.",
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const old = await currentRow();
+      if (old) {
+        await supabase.from("certificate_designs").delete().eq("id", old.id);
+        await supabase.storage.from("certificate-designs").remove([old.storage_path]);
+      }
+      toast.success("Design removed");
+      queryClient.invalidateQueries({ queryKey: ["design"] });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveLayout() {
+    setBusy(true);
+    try {
+      const row = await currentRow();
+      if (!row) {
+        toast.error("Upload a design first");
+        return;
+      }
+      const { error } = await supabase
+        .from("certificate_designs")
+        .update({ layout })
+        .eq("id", row.id);
+      if (error) throw error;
+      toast.success("Positions saved");
+      queryClient.invalidateQueries({ queryKey: ["design"] });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save positions");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function startDrag(e: React.PointerEvent<HTMLDivElement>, key: FieldKey) {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    drag.current = {
+      key,
+      px: e.clientX,
+      py: e.clientY,
+      ox: layout[key].x,
+      oy: layout[key].y,
+    };
+    setSelected(key);
+  }
+
+  function moveDrag(e: React.PointerEvent<HTMLDivElement>) {
+    const d = drag.current;
+    const box = boxRef.current;
+    if (!d || !box) return;
+    const dx = ((e.clientX - d.px) / box.clientWidth) * 100;
+    const dy = ((e.clientY - d.py) / box.clientHeight) * 100;
+    setLayout((prev) => ({
+      ...prev,
+      [d.key]: {
+        ...prev[d.key],
+        x: Math.min(100, Math.max(0, d.ox + dx)),
+        y: Math.min(100, Math.max(0, d.oy + dy)),
+      },
+    }));
+  }
+
+  function endDrag() {
+    drag.current = null;
+  }
+
+  return (
+    <section className="mt-4 rounded-2xl border border-border bg-card p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-card-foreground">
+            Company certificate design
+          </h2>
+          <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+            Upload your own design from your desktop (image or PDF). When a visitor
+            downloads a certificate, their details are printed onto this design.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*,application/pdf"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) handleUpload(file);
+            }}
+          />
+          <Button
+            type="button"
+            size="sm"
+            disabled={busy}
+            onClick={() => fileRef.current?.click()}
+          >
+            <ImagePlus className="size-4" />
+            {design ? "Replace design" : "Upload design"}
+          </Button>
+          {design && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={handleRemove}
+            >
+              <Trash2 className="size-4" />
+              Remove
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {design && (
+        <div className="mt-5">
+          <div
+            ref={boxRef}
+            className="relative mx-auto max-w-2xl select-none overflow-hidden rounded-xl border border-border bg-muted"
+            style={{ aspectRatio: "297 / 210" }}
+          >
+            {preview && (
+              <img
+                src={preview}
+                alt="Certificate design preview"
+                className="h-full w-full"
+                draggable={false}
+              />
+            )}
+            {!preview && !previewFailed && (
+              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                Loading preview…
+              </div>
+            )}
+            {previewFailed && (
+              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                Preview unavailable — the file is still saved and used for downloads.
+              </div>
+            )}
+            {(Object.keys(FIELD_LABELS) as FieldKey[]).map((key) => (
+              <div
+                key={key}
+                onPointerDown={(e) => startDrag(e, key)}
+                onPointerMove={moveDrag}
+                onPointerUp={endDrag}
+                className={`absolute -translate-x-1/2 -translate-y-1/2 cursor-grab touch-none rounded-full px-3 py-1.5 text-xs font-semibold shadow-sm active:cursor-grabbing ${
+                  selected === key
+                    ? "bg-primary text-primary-foreground ring-2 ring-primary/40"
+                    : "bg-background/90 text-foreground"
+                }`}
+                style={{ left: `${layout[key].x}%`, top: `${layout[key].y}%` }}
+              >
+                {FIELD_LABELS[key]}
+              </div>
+            ))}
+          </div>
+
+          <div className="mx-auto mt-4 flex max-w-2xl flex-wrap items-end gap-4">
+            <div className="min-w-56 flex-1">
+              <Label htmlFor={`size-${selected}`}>
+                Text size — {FIELD_LABELS[selected]}
+              </Label>
+              <input
+                id={`size-${selected}`}
+                type="range"
+                min={8}
+                max={60}
+                value={layout[selected].size}
+                onChange={(e) =>
+                  setLayout((prev) => ({
+                    ...prev,
+                    [selected]: { ...prev[selected], size: Number(e.target.value) },
+                  }))
+                }
+                className="mt-1 w-full"
+                style={{ accentColor: "var(--primary)" }}
+              />
+            </div>
+            <Button type="button" size="sm" disabled={busy} onClick={saveLayout}>
+              <Save className="size-4" />
+              Save positions
+            </Button>
+          </div>
+          <p className="mx-auto mt-2 max-w-2xl text-xs text-muted-foreground">
+            Drag each label to where it should appear on your design, set its text
+            size, then save. The preview shows exactly where details will print.
+          </p>
+        </div>
+      )}
+    </section>
   );
 }
