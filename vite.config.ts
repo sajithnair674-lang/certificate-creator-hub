@@ -15,6 +15,6 @@ export default defineConfig({
   },
 
   vite: {
-    plugins: [],
+    base: "/certificate-creator-hub/",
   },
 });
