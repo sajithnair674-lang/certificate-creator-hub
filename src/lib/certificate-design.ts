@@ -43,9 +43,9 @@ export function normalizeLayout(raw: unknown): DesignLayout {
         const n = (x: unknown, fallback: number) =>
           typeof x === "number" && Number.isFinite(x) ? x : fallback;
         out[key] = {
-          x: n(p.x, out[key].x),
-          y: n(p.y, out[key].y),
-          size: n(p.size, out[key].size),
+          x: n(p["x"], out[key].x),
+          y: n(p["y"], out[key].y),
+          size: n(p["size"], out[key].size),
         };
       }
     }
@@ -106,7 +106,7 @@ export async function loadDesignAsDataUrl(
     if (!ctx) throw new Error("Canvas not supported");
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    await page.render({ canvasContext: ctx, viewport }).promise;
+    await page.render({ canvas, canvasContext: ctx, viewport }).promise;
     return cover(canvas, canvas.width, canvas.height);
   }
 

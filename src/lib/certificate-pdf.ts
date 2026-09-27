@@ -1,5 +1,5 @@
 import { jsPDF } from "jspdf";
-import { DEFAULT_LAYOUT, formatDate, type DesignLayout } from "@/lib/certificate-design";
+import { DEFAULT_LAYOUT, type DesignLayout } from "@/lib/certificate-design";
 
 export type CertificateRecord = {
   register_number: string;
