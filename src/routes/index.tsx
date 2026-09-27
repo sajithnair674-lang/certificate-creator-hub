@@ -20,7 +20,10 @@ import {
   downloadCertificatePdf,
   formatDate,
   type CertificateRecord,
+  type DesignContext,
 } from "@/lib/certificate-pdf";
+import { getDesign } from "@/lib/design.functions";
+import { loadDesignAsDataUrl, normalizeLayout } from "@/lib/certificate-design";
 
 export const Route = createFileRoute("/")({
   head: () => ({

@@ -33,7 +33,7 @@ export const FIELD_LABELS: Record<FieldKey, string> = {
 
 const A4_RATIO = 297 / 210; // landscape
 
-function mergeLayout(raw: unknown): DesignLayout {
+export function normalizeLayout(raw: unknown): DesignLayout {
   const out: DesignLayout = JSON.parse(JSON.stringify(DEFAULT_LAYOUT));
   if (raw && typeof raw === "object") {
     for (const key of Object.keys(DEFAULT_LAYOUT) as FieldKey[]) {
