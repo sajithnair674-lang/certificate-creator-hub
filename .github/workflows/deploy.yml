@@ -33,12 +33,54 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Check build output
+      - name: Find build output
         run: |
-          echo "Checking build output..."
+          echo "Checking project files..."
           ls -la
-          echo "Checking dist folder..."
-          ls -la dist
+
+          echo "Searching for index.html..."
+          find . -maxdepth 4 -type f -name "index.html" \
+            -not -path "./node_modules/*" \
+            -not -path "./.git/*"
+
+      - name: Prepare GitHub Pages files
+        run: |
+          rm -rf site
+          mkdir -p site
+
+          if [ -f "dist/index.html" ]; then
+            echo "Using dist folder"
+            cp -R dist/. site/
+
+          elif [ -f "build/index.html" ]; then
+            echo "Using build folder"
+            cp -R build/. site/
+
+          else
+            echo "Searching for generated index.html..."
+
+            INDEX_FILE=$(find . -maxdepth 4 -type f -name "index.html" \
+              -not -path "./node_modules/*" \
+              -not -path "./.git/*" \
+              -not -path "./public/*" \
+              | head -n 1)
+
+            if [ -z "$INDEX_FILE" ]; then
+              echo "ERROR: No built index.html was found."
+              exit 1
+            fi
+
+            echo "Found: $INDEX_FILE"
+
+            BUILD_DIR=$(dirname "$INDEX_FILE")
+
+            echo "Copying files from: $BUILD_DIR"
+
+            cp -R "$BUILD_DIR"/. site/
+          fi
+
+          echo "Final GitHub Pages files:"
+          ls -la site
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
@@ -46,7 +88,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./dist
+          path: ./site
 
       - name: Deploy to GitHub Pages
         id: deployment
