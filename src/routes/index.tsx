@@ -280,9 +280,14 @@ function VerifiedDialog({
           <Button
             size="lg"
             className="mt-6 w-full"
-            onClick={() => downloadCertificatePdf(record)}
+            disabled={downloading}
+            onClick={handleDownload}
           >
-            <Download className="size-4" />
+            {downloading ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Download className="size-4" />
+            )}
             Download Certificate
           </Button>
           <p className="mt-4 flex items-center justify-center gap-1.5 text-sm font-semibold text-primary">
