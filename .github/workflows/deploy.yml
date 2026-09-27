@@ -30,7 +30,7 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Build
         run: npm run build
@@ -40,7 +40,7 @@ jobs:
           echo "===== .output ====="
           find .output -maxdepth 4 -type f | head -200
 
-          echo "===== Public output ====="
+          echo "===== .output/public ====="
           find .output/public -maxdepth 4 -type f | head -200
 
       - name: Setup Pages
