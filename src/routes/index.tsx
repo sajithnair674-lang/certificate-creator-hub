@@ -20,7 +20,10 @@ import {
   downloadCertificatePdf,
   formatDate,
   type CertificateRecord,
+  type DesignContext,
 } from "@/lib/certificate-pdf";
+import { getDesign } from "@/lib/design.functions";
+import { loadDesignAsDataUrl, normalizeLayout } from "@/lib/certificate-design";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -196,6 +199,25 @@ function VerifiedDialog({
   record: CertificateRecord;
   onClose: () => void;
 }) {
+  const [downloading, setDownloading] = useState(false);
+
+  async function handleDownload() {
+    setDownloading(true);
+    try {
+      const design = await getDesign();
+      if (design) {
+        const dataUrl = await loadDesignAsDataUrl(design.url, design.mime);
+        downloadCertificatePdf(record, { dataUrl, layout: normalizeLayout(design.layout) });
+      } else {
+        downloadCertificatePdf(record);
+      }
+    } catch {
+      downloadCertificatePdf(record);
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-foreground/40 p-4 backdrop-blur-sm sm:items-center"
@@ -258,9 +280,14 @@ function VerifiedDialog({
           <Button
             size="lg"
             className="mt-6 w-full"
-            onClick={() => downloadCertificatePdf(record)}
+            disabled={downloading}
+            onClick={handleDownload}
           >
-            <Download className="size-4" />
+            {downloading ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Download className="size-4" />
+            )}
             Download Certificate
           </Button>
           <p className="mt-4 flex items-center justify-center gap-1.5 text-sm font-semibold text-primary">
