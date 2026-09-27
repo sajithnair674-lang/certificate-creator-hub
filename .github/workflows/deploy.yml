@@ -5,6 +5,8 @@ on:
     branches:
       - main
 
+  workflow_dispatch:
+
 permissions:
   contents: read
   pages: write
@@ -28,59 +30,18 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Build
         run: npm run build
 
-      - name: Find build output
+      - name: Inspect build
         run: |
-          echo "Checking project files..."
-          ls -la
+          echo "===== .output ====="
+          find .output -maxdepth 4 -type f | head -200
 
-          echo "Searching for index.html..."
-          find . -maxdepth 4 -type f -name "index.html" \
-            -not -path "./node_modules/*" \
-            -not -path "./.git/*"
-
-      - name: Prepare GitHub Pages files
-        run: |
-          rm -rf site
-          mkdir -p site
-
-          if [ -f "dist/index.html" ]; then
-            echo "Using dist folder"
-            cp -R dist/. site/
-
-          elif [ -f "build/index.html" ]; then
-            echo "Using build folder"
-            cp -R build/. site/
-
-          else
-            echo "Searching for generated index.html..."
-
-            INDEX_FILE=$(find . -maxdepth 4 -type f -name "index.html" \
-              -not -path "./node_modules/*" \
-              -not -path "./.git/*" \
-              -not -path "./public/*" \
-              | head -n 1)
-
-            if [ -z "$INDEX_FILE" ]; then
-              echo "ERROR: No built index.html was found."
-              exit 1
-            fi
-
-            echo "Found: $INDEX_FILE"
-
-            BUILD_DIR=$(dirname "$INDEX_FILE")
-
-            echo "Copying files from: $BUILD_DIR"
-
-            cp -R "$BUILD_DIR"/. site/
-          fi
-
-          echo "Final GitHub Pages files:"
-          ls -la site
+          echo "===== Public output ====="
+          find .output/public -maxdepth 4 -type f | head -200
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
@@ -88,8 +49,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./site
+          path: .output/public
 
-      - name: Deploy to GitHub Pages
-        id: deployment
+      - name: Deploy
         uses: actions/deploy-pages@v4
