@@ -174,7 +174,7 @@ function AdminPage() {
     const path = `${row.id}/${Date.now()}-${safeName}`;
     const { error: upError } = await supabase.storage
       .from("student-certificates")
-      .upload(path, file, { contentType: file.type || undefined });
+      .upload(path, file, file.type ? { contentType: file.type } : {});
     if (upError) {
       setUploadingId(null);
       toast.error(upError.message);
