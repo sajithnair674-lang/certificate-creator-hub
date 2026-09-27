@@ -4,6 +4,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronLeft,
   ChevronRight,
+  FileCheck2,
+  FileUp,
   ImagePlus,
   LogOut,
   Pencil,
@@ -37,6 +39,7 @@ type Row = {
   student_name: string;
   course: string;
   issue_date: string;
+  file_path: string | null;
 };
 
 export const Route = createFileRoute("/_authenticated/admin")({
@@ -95,7 +98,7 @@ function AdminPage() {
     queryFn: async () => {
       let q = supabase
         .from("certificates")
-        .select("id, register_number, student_name, course, issue_date", {
+        .select("id, register_number, student_name, course, issue_date, file_path", {
           count: "exact",
         })
         .order("created_at", { ascending: false })
