@@ -23,6 +23,7 @@ import {
   type DesignContext,
 } from "@/lib/certificate-pdf";
 import { getDesign } from "@/lib/design.functions";
+import { getStudentCertificateFile } from "@/lib/student-certificate.functions";
 import { loadDesignAsDataUrl, normalizeLayout } from "@/lib/certificate-design";
 
 export const Route = createFileRoute("/")({
@@ -66,7 +67,7 @@ function VerifyPage() {
     setError(null);
     const { data, error: queryError } = await supabase
       .from("certificates")
-      .select("register_number, student_name, course, issue_date")
+      .select("register_number, student_name, course, issue_date, file_path")
       .ilike("register_number", reg)
       .ilike("student_name", nm)
       .maybeSingle();
@@ -204,6 +205,25 @@ function VerifiedDialog({
   async function handleDownload() {
     setDownloading(true);
     try {
+      // If the admin uploaded the student's actual certificate file, download it.
+      const uploaded = await getStudentCertificateFile({
+        data: {
+          registerNumber: record.register_number,
+          studentName: record.student_name,
+        },
+      });
+      if (uploaded) {
+        const res = await fetch(uploaded.url);
+        if (!res.ok) throw new Error("fetch failed");
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = uploaded.fileName;
+        a.click();
+        URL.revokeObjectURL(url);
+        return;
+      }
       const design = await getDesign();
       if (design) {
         const dataUrl = await loadDesignAsDataUrl(design.url, design.mime);

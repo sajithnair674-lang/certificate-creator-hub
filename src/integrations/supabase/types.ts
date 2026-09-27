@@ -48,6 +48,7 @@ export type Database = {
         Row: {
           course: string
           created_at: string
+          file_path: string | null
           id: string
           issue_date: string
           register_number: string
@@ -57,6 +58,7 @@ export type Database = {
         Insert: {
           course?: string
           created_at?: string
+          file_path?: string | null
           id?: string
           issue_date?: string
           register_number: string
@@ -66,6 +68,7 @@ export type Database = {
         Update: {
           course?: string
           created_at?: string
+          file_path?: string | null
           id?: string
           issue_date?: string
           register_number?: string
