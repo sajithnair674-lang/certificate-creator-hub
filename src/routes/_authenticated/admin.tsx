@@ -390,6 +390,13 @@ function AdminPage() {
           />
         </div>
 
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,image/*"
+          className="hidden"
+          onChange={handleFilePicked}
+        />
         <div className="mt-4 overflow-x-auto rounded-2xl border border-border bg-card">
           <table className="w-full text-left text-sm">
             <thead className="border-b border-border text-xs uppercase tracking-wider text-muted-foreground">
