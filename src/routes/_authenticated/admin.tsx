@@ -1,0 +1,415 @@
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ChevronLeft,
+  ChevronRight,
+  LogOut,
+  Pencil,
+  Plus,
+  Trash2,
+  Upload,
+} from "lucide-react";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { formatDate } from "@/lib/certificate-pdf";
+
+const PAGE_SIZE = 25;
+
+type Row = {
+  id: string;
+  register_number: string;
+  student_name: string;
+  course: string;
+  issue_date: string;
+};
+
+export const Route = createFileRoute("/_authenticated/admin")({
+  head: () => ({
+    meta: [
+      { title: "Manage certificates | Certificate Portal" },
+      {
+        name: "description",
+        content:
+          "Add, edit and remove certificate records that visitors verify and download.",
+      },
+      { property: "og:title", content: "Manage certificates" },
+      {
+        property: "og:description",
+        content: "Add, edit and remove certificate records for the verification portal.",
+      },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
+    ],
+  }),
+  component: AdminPage,
+  errorComponent: ({ error }) => (
+    <p role="alert" className="p-8 text-sm text-destructive">
+      {error.message}
+    </p>
+  ),
+  notFoundComponent: () => <p className="p-8">Not found.</p>,
+});
+
+function emptyForm() {
+  return {
+    register_number: "",
+    student_name: "",
+    course: "",
+    issue_date: new Date().toISOString().slice(0, 10),
+  };
+}
+
+function AdminPage() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState(emptyForm());
+  const [bulk, setBulk] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    supabase.rpc("claim_first_admin").then(({ data }) => setIsAdmin(!!data));
+  }, []);
+
+  const { data, isPending } = useQuery({
+    queryKey: ["certificates", search, page],
+    queryFn: async () => {
+      let q = supabase
+        .from("certificates")
+        .select("id, register_number, student_name, course, issue_date", {
+          count: "exact",
+        })
+        .order("created_at", { ascending: false })
+        .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
+      if (search.trim()) {
+        const term = `%${search.trim()}%`;
+        q = q.or(`register_number.ilike.${term},student_name.ilike.${term}`);
+      }
+      const { data: rows, count, error } = await q;
+      if (error) throw error;
+      return { rows: (rows ?? []) as Row[], count: count ?? 0 };
+    },
+  });
+
+  function refresh() {
+    queryClient.invalidateQueries({ queryKey: ["certificates"] });
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    const payload = {
+      register_number: form.register_number.trim(),
+      student_name: form.student_name.trim(),
+      course: form.course.trim(),
+      issue_date: form.issue_date,
+    };
+    const { error } = editingId
+      ? await supabase.from("certificates").update(payload).eq("id", editingId)
+      : await supabase.from("certificates").insert(payload);
+    setBusy(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(editingId ? "Record updated" : "Record added");
+    setForm(emptyForm());
+    setEditingId(null);
+    refresh();
+  }
+
+  async function handleDelete(row: Row) {
+    if (!confirm(`Delete the record for ${row.student_name}?`)) return;
+    const { error } = await supabase.from("certificates").delete().eq("id", row.id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Record deleted");
+    refresh();
+  }
+
+  async function handleBulkImport() {
+    const lines = bulk
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const rows = lines.map((line) => {
+      const [reg, name, course, date] = line.split(/\t|,/).map((v) => v?.trim() ?? "");
+      return {
+        register_number: reg ?? "",
+        student_name: name ?? "",
+        course: course ?? "",
+        issue_date: date || new Date().toISOString().slice(0, 10),
+      };
+    });
+    const valid = rows.filter((r) => r.register_number && r.student_name);
+    if (!valid.length) {
+      toast.error("Nothing to import. Use: register number, name, course, YYYY-MM-DD");
+      return;
+    }
+    setBusy(true);
+    let inserted = 0;
+    for (let i = 0; i < valid.length; i += 500) {
+      const chunk = valid.slice(i, i + 500);
+      const { error } = await supabase.from("certificates").insert(chunk);
+      if (error) {
+        setBusy(false);
+        toast.error(`Stopped after ${inserted} records: ${error.message}`);
+        refresh();
+        return;
+      }
+      inserted += chunk.length;
+    }
+    setBusy(false);
+    setBulk("");
+    toast.success(`${inserted} records imported`);
+    refresh();
+  }
+
+  async function handleSignOut() {
+    await supabase.auth.signOut();
+    navigate({ to: "/auth" });
+  }
+
+  const total = data?.count ?? 0;
+  const lastPage = Math.max(0, Math.ceil(total / PAGE_SIZE) - 1);
+
+  return (
+    <main className="min-h-screen bg-background">
+      <header className="border-b border-border bg-card">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4">
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight text-foreground">
+              Certificate records
+            </h1>
+            <p className="text-sm text-muted-foreground">{total} records</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link
+              to="/"
+              className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
+            >
+              Verification page
+            </Link>
+            <Button variant="outline" size="sm" onClick={handleSignOut}>
+              <LogOut className="size-4" />
+              Sign out
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      <div className="mx-auto max-w-6xl px-5 py-8">
+        {isAdmin === false && (
+          <p className="mb-6 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            This account is not an administrator, so saving changes will be rejected.
+          </p>
+        )}
+
+        <form
+          onSubmit={handleSave}
+          className="grid gap-4 rounded-2xl border border-border bg-card p-6 sm:grid-cols-5"
+        >
+          <div className="grid gap-2">
+            <Label htmlFor="f-reg">Register number</Label>
+            <Input
+              id="f-reg"
+              value={form.register_number}
+              onChange={(e) => setForm({ ...form, register_number: e.target.value })}
+              required
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="f-name">Student name</Label>
+            <Input
+              id="f-name"
+              value={form.student_name}
+              onChange={(e) => setForm({ ...form, student_name: e.target.value })}
+              required
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="f-course">Course</Label>
+            <Input
+              id="f-course"
+              value={form.course}
+              onChange={(e) => setForm({ ...form, course: e.target.value })}
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="f-date">Issue date</Label>
+            <Input
+              id="f-date"
+              type="date"
+              value={form.issue_date}
+              onChange={(e) => setForm({ ...form, issue_date: e.target.value })}
+              required
+            />
+          </div>
+          <div className="flex items-end gap-2">
+            <Button type="submit" disabled={busy} className="flex-1">
+              <Plus className="size-4" />
+              {editingId ? "Update" : "Add"}
+            </Button>
+            {editingId && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setEditingId(null);
+                  setForm(emptyForm());
+                }}
+              >
+                Cancel
+              </Button>
+            )}
+          </div>
+        </form>
+
+        <details className="mt-4 rounded-2xl border border-border bg-card p-6">
+          <summary className="cursor-pointer text-sm font-semibold text-card-foreground">
+            Import many records at once
+          </summary>
+          <p className="mt-3 text-sm text-muted-foreground">
+            One record per line: register number, name, course, date (YYYY-MM-DD). You
+            can paste columns copied straight from a spreadsheet.
+          </p>
+          <Textarea
+            value={bulk}
+            onChange={(e) => setBulk(e.target.value)}
+            rows={6}
+            className="mt-3 font-mono text-sm"
+            placeholder={"EDU100, Arun Das, Web Design, 2026-05-12"}
+          />
+          <Button
+            type="button"
+            className="mt-3"
+            onClick={handleBulkImport}
+            disabled={busy}
+          >
+            <Upload className="size-4" />
+            Import
+          </Button>
+        </details>
+
+        <div className="mt-8">
+          <Input
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(0);
+            }}
+            placeholder="Search by register number or name"
+            className="max-w-sm"
+          />
+        </div>
+
+        <div className="mt-4 overflow-x-auto rounded-2xl border border-border bg-card">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-border text-xs uppercase tracking-wider text-muted-foreground">
+              <tr>
+                <th className="px-5 py-3">Register no.</th>
+                <th className="px-5 py-3">Name</th>
+                <th className="px-5 py-3">Course</th>
+                <th className="px-5 py-3">Issue date</th>
+                <th className="px-5 py-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isPending && (
+                <tr>
+                  <td colSpan={5} className="px-5 py-8 text-muted-foreground">
+                    Loading…
+                  </td>
+                </tr>
+              )}
+              {!isPending && !data?.rows.length && (
+                <tr>
+                  <td colSpan={5} className="px-5 py-8 text-muted-foreground">
+                    No records yet.
+                  </td>
+                </tr>
+              )}
+              {data?.rows.map((row) => (
+                <tr key={row.id} className="border-b border-border last:border-0">
+                  <td className="px-5 py-3 font-medium text-card-foreground">
+                    {row.register_number}
+                  </td>
+                  <td className="px-5 py-3">{row.student_name}</td>
+                  <td className="px-5 py-3 text-muted-foreground">{row.course}</td>
+                  <td className="px-5 py-3 text-muted-foreground">
+                    {formatDate(row.issue_date)}
+                  </td>
+                  <td className="px-5 py-3">
+                    <div className="flex justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Edit"
+                        onClick={() => {
+                          setEditingId(row.id);
+                          setForm({
+                            register_number: row.register_number,
+                            student_name: row.student_name,
+                            course: row.course,
+                            issue_date: row.issue_date,
+                          });
+                          window.scrollTo({ top: 0, behavior: "smooth" });
+                        }}
+                      >
+                        <Pencil className="size-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Delete"
+                        onClick={() => handleDelete(row)}
+                      >
+                        <Trash2 className="size-4 text-destructive" />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
+          <span>
+            Page {page + 1} of {lastPage + 1}
+          </span>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page === 0}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+            >
+              <ChevronLeft className="size-4" />
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page >= lastPage}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              Next
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
