@@ -199,6 +199,25 @@ function VerifiedDialog({
   record: CertificateRecord;
   onClose: () => void;
 }) {
+  const [downloading, setDownloading] = useState(false);
+
+  async function handleDownload() {
+    setDownloading(true);
+    try {
+      const design = await getDesign();
+      if (design) {
+        const dataUrl = await loadDesignAsDataUrl(design.url, design.mime);
+        downloadCertificatePdf(record, { dataUrl, layout: normalizeLayout(design.layout) });
+      } else {
+        downloadCertificatePdf(record);
+      }
+    } catch {
+      downloadCertificatePdf(record);
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-foreground/40 p-4 backdrop-blur-sm sm:items-center"
